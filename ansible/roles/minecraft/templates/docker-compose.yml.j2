@@ -1,0 +1,126 @@
+# {{ ansible_managed }}
+# Minecraft Server Docker Compose Configuration
+
+services:
+  # Infrared - Scale-to-zero proxy
+  infrared:
+    image: haveachin/infrared:latest
+    container_name: infrared
+    restart: unless-stopped
+    ports:
+      - "{{ minecraft_port }}:25565"
+    volumes:
+      - ./infrared:/etc/infrared:ro
+    networks:
+      - minecraft
+    depends_on:
+      - minecraft
+
+  # Minecraft Server (Paper)
+  minecraft:
+    image: itzg/minecraft-server:{{ minecraft_docker_tag }}
+    container_name: minecraft
+    restart: unless-stopped
+    environment:
+      EULA: "TRUE"
+      TYPE: "{{ minecraft_type }}"
+      VERSION: "{{ minecraft_version }}"
+      SERVER_NAME: "{{ minecraft_server_name }}"
+      MOTD: "{{ minecraft_motd }}"
+      MAX_PLAYERS: "{{ minecraft_max_players }}"
+      DIFFICULTY: "{{ minecraft_difficulty }}"
+      MODE: "{{ minecraft_gamemode }}"
+      VIEW_DISTANCE: "{{ minecraft_view_distance }}"
+      SIMULATION_DISTANCE: "{{ minecraft_simulation_distance }}"
+      MEMORY: "{{ minecraft_memory }}"
+      USE_AIKAR_FLAGS: "{{ minecraft_use_aikar_flags | string | lower }}"
+      ENABLE_RCON: "{{ minecraft_rcon_enabled | string | lower }}"
+      RCON_PASSWORD: "{{ minecraft_rcon_password }}"
+      RCON_PORT: "{{ minecraft_rcon_port }}"
+      # Scale-to-zero settings
+      ENABLE_AUTOSTOP: "TRUE"
+      AUTOSTOP_TIMEOUT_EST: "{{ minecraft_autostop_timeout }}"
+      AUTOSTOP_TIMEOUT_INIT: "60"
+{% if minecraft_whitelist_enabled %}
+      WHITELIST: "{{ minecraft_whitelist | join(',') }}"
+      ENFORCE_WHITELIST: "TRUE"
+{% endif %}
+{% if minecraft_ops %}
+      OPS: "{{ minecraft_ops | join(',') }}"
+{% endif %}
+      # Additional settings
+      SPAWN_PROTECTION: "{{ minecraft_spawn_protection }}"
+      ONLINE_MODE: "{{ minecraft_online_mode | string | lower }}"
+      PVP: "{{ minecraft_pvp | string | lower }}"
+{% if minecraft_seed %}
+      SEED: "{{ minecraft_seed }}"
+{% endif %}
+    volumes:
+      - {{ minecraft_data_dir }}:/data
+    expose:
+      - "25565"
+      - "{{ minecraft_rcon_port }}"
+    networks:
+      - minecraft
+    healthcheck:
+      test: mc-health
+      start_period: 1m
+      interval: 30s
+      retries: 3
+
+{% if minecraft_prometheus_enabled %}
+  # Prometheus Exporter
+  minecraft-exporter:
+    image: ghcr.io/dirien/minecraft-exporter:latest
+    container_name: minecraft-exporter
+    restart: unless-stopped
+    environment:
+      MC_RCON_ADDRESS: "minecraft:{{ minecraft_rcon_port }}"
+      MC_RCON_PASSWORD: "{{ minecraft_rcon_password }}"
+      WEB_LISTEN_ADDRESS: ":{{ minecraft_prometheus_port }}"
+    ports:
+      - "{{ minecraft_prometheus_port }}:{{ minecraft_prometheus_port }}"
+    networks:
+      - minecraft
+    depends_on:
+      - minecraft
+{% endif %}
+
+{% if minecraft_backup_enabled %}
+  # Restic Backup Container
+  backup:
+    image: restic/restic:latest
+    container_name: minecraft-backup
+    restart: "no"
+    environment:
+      RESTIC_REPOSITORY: "s3:{{ minecraft_backup_s3_endpoint }}/{{ minecraft_backup_s3_bucket }}"
+      RESTIC_PASSWORD_FILE: "/credentials/.restic-password"
+      AWS_ACCESS_KEY_ID: "{{ minecraft_backup_s3_access_key }}"
+      AWS_SECRET_ACCESS_KEY: "{{ minecraft_backup_s3_secret_key }}"
+    volumes:
+      - {{ minecraft_data_dir }}:/data:ro
+      - {{ minecraft_install_dir }}/.restic-password:/credentials/.restic-password:ro
+    networks:
+      - minecraft
+    profiles:
+      - backup
+{% endif %}
+
+{% if minecraft_packwiz_enabled %}
+  # Packwiz Distribution Server
+  packwiz:
+    image: nginx:alpine
+    container_name: packwiz
+    restart: unless-stopped
+    ports:
+      - "{{ minecraft_packwiz_port }}:80"
+    volumes:
+      - {{ minecraft_install_dir }}/modpack:/usr/share/nginx/html:ro
+      - {{ minecraft_install_dir }}/modpack/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - minecraft
+{% endif %}
+
+networks:
+  minecraft:
+    driver: bridge

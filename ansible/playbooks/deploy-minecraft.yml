@@ -1,0 +1,66 @@
+---
+# Minecraft Server Deployment Playbook
+
+- name: Deploy Minecraft Server
+  hosts: minecraft_servers
+  become: true
+  
+  pre_tasks:
+    - name: Update apt cache
+      ansible.builtin.apt:
+        update_cache: true
+        cache_valid_time: 3600
+      when: ansible_os_family == "Debian"
+    
+    - name: Install required packages
+      ansible.builtin.apt:
+        name:
+          - curl
+          - wget
+          - unzip
+          - git
+          - restic
+        state: present
+      when: ansible_os_family == "Debian"
+  
+  roles:
+    - role: minecraft
+      tags:
+        - minecraft
+        - gaming
+  
+  post_tasks:
+    - name: Display connection information
+      ansible.builtin.debug:
+        msg: |
+          ╔══════════════════════════════════════════════════════════════════╗
+          ║                    MINECRAFT SERVER DEPLOYED                     ║
+          ╠══════════════════════════════════════════════════════════════════╣
+          ║                                                                  ║
+          ║  Server: {{ minecraft_server_name | default('Minecraft Server') }}
+          ║  Address: {{ ansible_host }}:{{ minecraft_port | default(25565) }}
+          ║  Version: {{ minecraft_version | default('latest') }}
+          ║                                                                  ║
+          ║  Features:                                                       ║
+          ║  - Scale-to-zero: {{ 'ENABLED' if minecraft_infrared_enabled | default(true) else 'DISABLED' }}
+          ║  - Backup S3: {{ 'ENABLED' if minecraft_backup_enabled | default(true) else 'DISABLED' }}
+          ║  - Prometheus: {{ 'ENABLED' if minecraft_prometheus_enabled | default(true) else 'DISABLED' }}
+          ║  - Packwiz: {{ 'ENABLED' if minecraft_packwiz_enabled | default(true) else 'DISABLED' }}
+          ║                                                                  ║
+          {% if minecraft_packwiz_enabled | default(true) %}
+          ║  Modpack URL: http://{{ ansible_host }}:{{ minecraft_packwiz_port | default(8080) }}/pack.toml
+          {% endif %}
+          {% if minecraft_prometheus_enabled | default(true) %}
+          ║  Metrics: http://{{ ansible_host }}:{{ minecraft_prometheus_port | default(9225) }}/metrics
+          {% endif %}
+          ║                                                                  ║
+          ║  Useful commands:                                                ║
+          ║  - Start: docker compose up -d                                   ║
+          ║  - Stop: docker compose down                                     ║
+          ║  - Logs: docker compose logs -f minecraft                        ║
+          ║  - Backup: ./scripts/backup.sh backup                            ║
+          ║  - Restore: ./scripts/backup.sh restore                          ║
+          ║                                                                  ║
+          ╚══════════════════════════════════════════════════════════════════╝
+      tags:
+        - always

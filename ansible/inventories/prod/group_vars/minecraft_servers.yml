@@ -1,0 +1,38 @@
+---
+# Production variables for Minecraft servers
+
+# Server configuration
+minecraft_version: "1.21.4"
+minecraft_type: "PAPER"
+minecraft_server_name: "Mon Serveur Minecraft"
+minecraft_motd: "Bienvenue sur notre serveur!"
+minecraft_max_players: 20
+
+# Performance
+minecraft_memory: "6G"
+minecraft_view_distance: 10
+minecraft_simulation_distance: 8
+
+# Network
+minecraft_port: 25565
+minecraft_infrared_domain: "minecraft.example.com"
+
+# Scale-to-zero
+minecraft_infrared_enabled: true
+minecraft_autostop_timeout: 300
+
+# Backup - Override these in host_vars or secrets
+minecraft_backup_enabled: true
+# minecraft_backup_s3_endpoint: "s3.amazonaws.com"
+# minecraft_backup_s3_bucket: "minecraft-backups"
+# minecraft_backup_s3_access_key: "{{ vault_s3_access_key }}"
+# minecraft_backup_s3_secret_key: "{{ vault_s3_secret_key }}"
+# minecraft_backup_restic_password: "{{ vault_restic_password }}"
+
+# Monitoring
+minecraft_prometheus_enabled: true
+minecraft_prometheus_port: 9225
+
+# Modpack distribution
+minecraft_packwiz_enabled: true
+minecraft_packwiz_port: 8080

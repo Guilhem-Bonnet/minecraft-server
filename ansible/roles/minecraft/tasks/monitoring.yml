@@ -1,0 +1,68 @@
+---
+# Prometheus monitoring configuration tasks
+
+- name: Create prometheus directory
+  ansible.builtin.file:
+    path: "{{ minecraft_install_dir }}/prometheus"
+    state: directory
+    owner: "{{ minecraft_user }}"
+    group: "{{ minecraft_group }}"
+    mode: "0755"
+  become: true
+  when: minecraft_prometheus_enabled | bool
+
+- name: Template prometheus scrape config
+  ansible.builtin.template:
+    src: prometheus-scrape.yml.j2
+    dest: "{{ minecraft_install_dir }}/prometheus/minecraft-scrape.yml"
+    owner: "{{ minecraft_user }}"
+    group: "{{ minecraft_group }}"
+    mode: "0644"
+  become: true
+  when: minecraft_prometheus_enabled | bool
+
+- name: Create Grafana dashboards directory
+  ansible.builtin.file:
+    path: "{{ minecraft_install_dir }}/grafana/dashboards"
+    state: directory
+    owner: "{{ minecraft_user }}"
+    group: "{{ minecraft_group }}"
+    mode: "0755"
+  become: true
+  when: minecraft_prometheus_enabled | bool
+
+- name: Download Minecraft Grafana dashboard
+  ansible.builtin.get_url:
+    url: "https://grafana.com/api/dashboards/14756/revisions/1/download"
+    dest: "{{ minecraft_install_dir }}/grafana/dashboards/minecraft-dashboard.json"
+    owner: "{{ minecraft_user }}"
+    group: "{{ minecraft_group }}"
+    mode: "0644"
+  become: true
+  when: minecraft_prometheus_enabled | bool
+  failed_when: false  # Dashboard download is optional
+
+- name: Create custom Minecraft dashboard
+  ansible.builtin.template:
+    src: grafana-dashboard.json.j2
+    dest: "{{ minecraft_install_dir }}/grafana/dashboards/minecraft-custom.json"
+    owner: "{{ minecraft_user }}"
+    group: "{{ minecraft_group }}"
+    mode: "0644"
+  become: true
+  when: minecraft_prometheus_enabled | bool
+
+- name: Display Prometheus integration info
+  ansible.builtin.debug:
+    msg: |
+      Prometheus Integration:
+      - Exporter Port: {{ minecraft_prometheus_port }}
+      - Metrics URL: http://{{ ansible_host }}:{{ minecraft_prometheus_port }}/metrics
+      
+      Add to your Prometheus config:
+      - job_name: 'minecraft'
+        static_configs:
+          - targets: ['{{ ansible_host }}:{{ minecraft_prometheus_port }}']
+            labels:
+              server: '{{ minecraft_server_name }}'
+  when: minecraft_prometheus_enabled | bool

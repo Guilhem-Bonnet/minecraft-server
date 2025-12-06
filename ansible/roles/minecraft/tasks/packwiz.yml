@@ -1,0 +1,61 @@
+---
+# Packwiz mod distribution tasks
+
+- name: Create modpack directory structure
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    owner: "{{ minecraft_user }}"
+    group: "{{ minecraft_group }}"
+    mode: "0755"
+  become: true
+  loop:
+    - "{{ minecraft_install_dir }}/modpack"
+    - "{{ minecraft_install_dir }}/modpack/mods"
+    - "{{ minecraft_install_dir }}/modpack/config"
+  when: minecraft_packwiz_enabled | bool
+
+- name: Template pack.toml
+  ansible.builtin.template:
+    src: pack.toml.j2
+    dest: "{{ minecraft_install_dir }}/modpack/pack.toml"
+    owner: "{{ minecraft_user }}"
+    group: "{{ minecraft_group }}"
+    mode: "0644"
+  become: true
+  when: minecraft_packwiz_enabled | bool
+  notify: Refresh packwiz
+
+- name: Template manage-mods.sh script
+  ansible.builtin.template:
+    src: manage-mods.sh.j2
+    dest: "{{ minecraft_install_dir }}/scripts/manage-mods.sh"
+    owner: "{{ minecraft_user }}"
+    group: "{{ minecraft_group }}"
+    mode: "0755"
+  become: true
+  when: minecraft_packwiz_enabled | bool
+
+- name: Create packwiz nginx config
+  ansible.builtin.template:
+    src: packwiz-nginx.conf.j2
+    dest: "{{ minecraft_install_dir }}/modpack/nginx.conf"
+    owner: "{{ minecraft_user }}"
+    group: "{{ minecraft_group }}"
+    mode: "0644"
+  become: true
+  when: minecraft_packwiz_enabled | bool
+
+- name: Display packwiz info
+  ansible.builtin.debug:
+    msg: |
+      Packwiz Mod Distribution:
+      - Pack URL: http://{{ ansible_host }}:{{ minecraft_packwiz_port }}/pack.toml
+      
+      For players using Prism Launcher:
+      1. Open Prism Launcher
+      2. Add Instance > Import from Modrinth
+      3. Enter: http://{{ ansible_host }}:{{ minecraft_packwiz_port }}/modpack.mrpack
+      
+      Or manually import pack.toml for auto-updates!
+  when: minecraft_packwiz_enabled | bool

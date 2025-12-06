@@ -1,0 +1,60 @@
+# {{ ansible_managed }}
+# Infrared Scale-to-Zero Proxy Configuration
+
+proxies:
+  {{ minecraft_server_name | lower | replace(' ', '-') }}:
+    domainNames:
+      - "{{ minecraft_infrared_domain }}"
+{% for domain in minecraft_infrared_extra_domains | default([]) %}
+      - "{{ domain }}"
+{% endfor %}
+    
+    proxyTo: "minecraft:25565"
+    
+    # Connection timeout before starting the server
+    dialTimeout: "1s"
+    
+    # Time to wait for server to be ready
+    proxyProtocol: false
+    
+    # Real IP forwarding (for plugins)
+    realIP: true
+    
+    # Docker container management
+    docker:
+      containerName: "minecraft"
+      timeout: "{{ minecraft_infrared_start_timeout }}"
+      portainerURL: ""  # Optional Portainer integration
+    
+    # Server status when offline
+    offlineStatus:
+      versionName: "{{ minecraft_server_name }}"
+      protocolNumber: 767  # Minecraft {{ minecraft_version }}
+      maxPlayers: {{ minecraft_max_players }}
+      playersOnline: 0
+      playerSamples: []
+      motd: |
+        §a{{ minecraft_server_name }}
+        §7Serveur en veille - Connectez-vous pour démarrer!
+      iconPath: ""
+    
+    # Callback URLs (optional)
+    callbackServer:
+      events:
+        - "Error"
+        - "PlayerJoin"
+        - "PlayerLeave"
+        - "ContainerStart"
+        - "ContainerStop"
+
+# Global settings
+defaults:
+  # Log settings
+  logLevel: "info"
+  
+  # Timeout settings
+  playerConnTimeout: "60s"
+  keepAliveTimeout: "30s"
+  
+  # Performance
+  receiveProxyProtocol: false

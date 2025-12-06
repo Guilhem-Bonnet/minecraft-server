@@ -1,0 +1,90 @@
+# Configuration Infrared - Proxy Minecraft
+#
+# Infrared intercepte les connexions et:
+# 1. Démarre le container MC si arrêté
+# 2. Affiche un MOTD de chargement pendant le démarrage
+# 3. Redirige vers le serveur MC une fois prêt
+# 4. Arrête MC après timeout sans joueur
+
+proxies:
+  minecraft:
+    # Domaine ou IP que les joueurs utilisent
+    domainNames:
+      - "mc.example.com"
+      - "minecraft.example.com"
+      - "localhost"
+      - "*"  # Accepte toutes les connexions
+    
+    # Backend - le serveur Minecraft
+    proxyTo: "minecraft:25565"
+    
+    # === Comportement Wake-on-Demand ===
+    docker:
+      # Conteneur à démarrer/arrêter
+      containerName: "minecraft"
+      
+      # Timeout pour démarrer (secondes)
+      timeout: 180
+      
+      # Portainer endpoint (optionnel)
+      # portainerAddress: "http://portainer:9000"
+      # portainerEndpointId: 1
+    
+    # === Message pendant le démarrage ===
+    onlineStatus:
+      # Afficher comme serveur en ligne même si MC est arrêté
+      online: true
+      
+      # MOTD quand le serveur démarre
+      motd: |
+        §6⏳ Serveur en démarrage...
+        §7Patientez quelques secondes
+      
+      # Version affichée
+      versionName: "§eChargement..."
+      
+      # Nombre de joueurs fictif pendant le chargement
+      maxPlayers: 0
+      
+      # Icône du serveur (base64 ou chemin)
+      # iconPath: /etc/infrared/server-icon.png
+    
+    # === Déconnexion pendant le chargement ===
+    disconnectMessage: |
+      §6Le serveur démarre!
+      §7
+      §fReconnectez-vous dans quelques secondes...
+      §7Le serveur s'active à la demande pour économiser les ressources.
+    
+    # === Timeout d'inactivité ===
+    # (Géré aussi côté MC avec ENABLE_AUTOSTOP)
+    timeout: 0  # Désactivé ici, géré par MC
+    
+    # === Callbacks (optionnel) ===
+    # callbackServer:
+    #   address: "http://webhook.example.com"
+    #   events:
+    #     - playerJoin
+    #     - playerLeave
+    #     - serverStart
+    #     - serverStop
+    
+    # === Rate limiting ===
+    rateLimit:
+      requestLimit: 10
+      duration: 1s
+
+# === Configuration globale ===
+api:
+  # API REST pour contrôle externe
+  enabled: true
+  bind: "0.0.0.0:8080"
+
+prometheus:
+  # Metrics Prometheus
+  enabled: true
+  bind: "0.0.0.0:9100"
+
+# === Logging ===
+logging:
+  level: "info"  # debug, info, warn, error

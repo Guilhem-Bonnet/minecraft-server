@@ -1,0 +1,38 @@
+# Minecraft Server - Terraform Variables Example
+
+# Proxmox configuration
+pm_api_url          = "https://192.168.2.22:8006/api2/json"
+pm_api_token_id     = "terraform@pam!terraform"
+pm_api_token_secret = "your-token-secret"
+pm_tls_insecure     = true
+
+# Target node
+target_node = "developadream"
+
+# Container configuration
+ct_hostname   = "game-host-01"
+ct_vmid       = 110
+ct_ostemplate = "local:vztmpl/debian-12-standard_12.2-1_amd64.tar.zst"
+
+# Resources
+ct_cores  = 4
+ct_memory = 8192  # 8GB for Minecraft
+ct_swap   = 2048
+ct_disk   = "32G"
+
+# Network
+ct_network_bridge = "vmbr0"
+ct_ip_address     = "192.168.2.70"
+ct_gateway        = "192.168.2.1"
+
+# Storage
+ct_storage      = "local-lvm"
+ct_data_storage = "ssd-storage"  # Optional dedicated storage for game data
+ct_data_size    = "100G"
+
+# Security
+ct_ssh_public_key = "ssh-ed25519 AAAA... your-key"
+ct_password       = "change-me"
+
+# Tags
+ct_tags = ["minecraft", "gaming", "docker"]

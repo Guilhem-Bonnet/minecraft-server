@@ -1,0 +1,206 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Mod Management Script with Packwiz
+
+set -euo pipefail
+
+MODPACK_DIR="{{ minecraft_install_dir }}/modpack"
+PACKWIZ_IMAGE="docker.io/packwiz/packwiz:latest"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+run_packwiz() {
+    docker run --rm -v "${MODPACK_DIR}:/pack" -w /pack ${PACKWIZ_IMAGE} "$@"
+}
+
+# Initialize packwiz if needed
+init_packwiz() {
+    if [ ! -f "${MODPACK_DIR}/pack.toml" ]; then
+        log "Initializing packwiz..."
+        run_packwiz init --name "{{ minecraft_server_name }}" --mc-version "{{ minecraft_version }}"
+    fi
+}
+
+# Add mod from Modrinth
+add_modrinth() {
+    local mod_slug="$1"
+    log "Adding mod from Modrinth: ${mod_slug}"
+    run_packwiz modrinth add "${mod_slug}"
+    refresh_index
+}
+
+# Add mod from CurseForge
+add_curseforge() {
+    local mod_id="$1"
+    log "Adding mod from CurseForge: ${mod_id}"
+    run_packwiz curseforge add "${mod_id}"
+    refresh_index
+}
+
+# Remove mod
+remove_mod() {
+    local mod_name="$1"
+    log "Removing mod: ${mod_name}"
+    rm -f "${MODPACK_DIR}/mods/${mod_name}.toml"
+    refresh_index
+}
+
+# Update all mods
+update_all() {
+    log "Updating all mods..."
+    run_packwiz update --all
+    refresh_index
+}
+
+# Refresh index
+refresh_index() {
+    log "Refreshing packwiz index..."
+    run_packwiz refresh
+}
+
+# Export to Modrinth format (.mrpack)
+export_modrinth() {
+    local output_name="${1:-modpack.mrpack}"
+    log "Exporting to Modrinth format: ${output_name}"
+    run_packwiz modrinth export -o "${output_name}"
+    log "Export complete: ${MODPACK_DIR}/${output_name}"
+}
+
+# Export to CurseForge format
+export_curseforge() {
+    local output_name="${1:-modpack.zip}"
+    log "Exporting to CurseForge format: ${output_name}"
+    run_packwiz curseforge export -o "${output_name}"
+    log "Export complete: ${MODPACK_DIR}/${output_name}"
+}
+
+# Sync mods to server
+sync_server() {
+    local server_mods_dir="{{ minecraft_data_dir }}/mods"
+    log "Syncing mods to server..."
+    
+    # Get list of mod URLs from packwiz
+    mkdir -p "${server_mods_dir}"
+    
+    # Use packwiz to download mods
+    run_packwiz modrinth export -o /tmp/temp-pack.mrpack
+    unzip -o /tmp/temp-pack.mrpack -d /tmp/temp-pack
+    cp -r /tmp/temp-pack/mods/* "${server_mods_dir}/"
+    rm -rf /tmp/temp-pack /tmp/temp-pack.mrpack
+    
+    log "Mods synced to server"
+}
+
+# List mods
+list_mods() {
+    log "Installed mods:"
+    if [ -d "${MODPACK_DIR}/mods" ]; then
+        ls -1 "${MODPACK_DIR}/mods/"*.toml 2>/dev/null | xargs -I {} basename {} .toml || echo "No mods installed"
+    else
+        echo "No mods directory found"
+    fi
+}
+
+# Show recommended mods
+show_recommended() {
+    cat <<EOF
+Recommended Performance Mods (Fabric):
+  - sodium           : Graphics optimization
+  - lithium          : Server/game optimization
+  - phosphor         : Lighting engine optimization
+  - starlight        : Alternative lighting engine
+  - ferritecore      : Memory optimization
+  - lazydfu          : Faster startup
+  - entityculling    : Entity rendering optimization
+
+Recommended Quality of Life Mods:
+  - modmenu          : Mod configuration UI
+  - roughly-enough-items : Item/recipe browser
+  - journeymap       : Minimap
+  - appleskin        : Food/hunger info
+  - jade             : Block/entity info
+
+Paper Server Plugins:
+  - ViaVersion       : Multi-version support
+  - LuckPerms        : Permissions
+  - EssentialsX      : Core commands
+  - WorldEdit        : Building tools
+
+Add mods with:
+  $0 add-modrinth <slug>
+  $0 add-curseforge <id>
+EOF
+}
+
+usage() {
+    cat <<EOF
+Minecraft Mod Management Script
+
+Usage: $0 <command> [options]
+
+Commands:
+    init                    - Initialize packwiz
+    add-modrinth <slug>     - Add mod from Modrinth
+    add-curseforge <id>     - Add mod from CurseForge
+    remove <name>           - Remove a mod
+    update                  - Update all mods
+    list                    - List installed mods
+    export-modrinth [name]  - Export to .mrpack (for Prism Launcher)
+    export-curseforge [name]- Export to CurseForge format
+    sync-server             - Sync mods to Minecraft server
+    refresh                 - Refresh packwiz index
+    recommended             - Show recommended mods
+
+Examples:
+    $0 add-modrinth sodium
+    $0 add-modrinth lithium
+    $0 export-modrinth myserver.mrpack
+    $0 sync-server
+EOF
+}
+
+# Main
+case "${1:-}" in
+    init)
+        init_packwiz
+        ;;
+    add-modrinth)
+        [ -z "${2:-}" ] && { echo "Error: mod slug required"; exit 1; }
+        add_modrinth "$2"
+        ;;
+    add-curseforge)
+        [ -z "${2:-}" ] && { echo "Error: mod id required"; exit 1; }
+        add_curseforge "$2"
+        ;;
+    remove)
+        [ -z "${2:-}" ] && { echo "Error: mod name required"; exit 1; }
+        remove_mod "$2"
+        ;;
+    update)
+        update_all
+        ;;
+    list)
+        list_mods
+        ;;
+    export-modrinth)
+        export_modrinth "${2:-modpack.mrpack}"
+        ;;
+    export-curseforge)
+        export_curseforge "${2:-modpack.zip}"
+        ;;
+    sync-server)
+        sync_server
+        ;;
+    refresh)
+        refresh_index
+        ;;
+    recommended)
+        show_recommended
+        ;;
+    *)
+        usage
+        exit 1
+        ;;
+esac

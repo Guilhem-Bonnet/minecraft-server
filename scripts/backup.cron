@@ -1,0 +1,38 @@
+# Crontab pour backups Minecraft
+# Installer avec: crontab /opt/minecraft/scripts/backup.cron
+# Ou copier le contenu dans: crontab -e
+
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+MAILTO=""
+
+# === Variables d'environnement ===
+BACKUP_SCRIPT=/opt/minecraft/scripts/backup.sh
+LOG_FILE=/var/log/minecraft-backup.log
+
+# === Backup programmés ===
+
+# Toutes les 4 heures - Backup incrémental
+0 */4 * * * ${BACKUP_SCRIPT} backup >> ${LOG_FILE} 2>&1
+
+# Dimanche 4h00 - Backup complet avec tag weekly
+0 4 * * 0 ${BACKUP_SCRIPT} --tag weekly >> ${LOG_FILE} 2>&1
+
+# Premier du mois 3h00 - Backup avec tag monthly  
+0 3 1 * * ${BACKUP_SCRIPT} --tag monthly >> ${LOG_FILE} 2>&1
+
+# Vérification intégrité - Dimanche 5h00
+0 5 * * 0 ${BACKUP_SCRIPT} check >> ${LOG_FILE} 2>&1
+
+# Nettoyage logs - Lundi 2h00
+0 2 * * 1 find /var/log -name "minecraft-*.log" -mtime +30 -delete
+
+# === Notes ===
+# Pour backup manuel avant update:
+#   /opt/minecraft/scripts/backup.sh --tag pre-update
+#
+# Pour lister les backups:
+#   /opt/minecraft/scripts/backup.sh list
+#
+# Pour restaurer:
+#   /opt/minecraft/scripts/backup.sh restore latest

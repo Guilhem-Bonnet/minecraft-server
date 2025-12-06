@@ -1,0 +1,40 @@
+---
+# Handlers for Minecraft role
+
+- name: Restart minecraft
+  community.docker.docker_compose_v2:
+    project_src: "{{ minecraft_install_dir }}"
+    services:
+      - minecraft
+    state: restarted
+  become: true
+  become_user: "{{ minecraft_user }}"
+
+- name: Restart infrared
+  community.docker.docker_compose_v2:
+    project_src: "{{ minecraft_install_dir }}"
+    services:
+      - infrared
+    state: restarted
+  become: true
+  become_user: "{{ minecraft_user }}"
+
+- name: Restart all services
+  community.docker.docker_compose_v2:
+    project_src: "{{ minecraft_install_dir }}"
+    state: restarted
+  become: true
+  become_user: "{{ minecraft_user }}"
+
+- name: Refresh packwiz
+  ansible.builtin.command:
+    cmd: "{{ minecraft_install_dir }}/scripts/manage-mods.sh refresh"
+  become: true
+  become_user: "{{ minecraft_user }}"
+  changed_when: true
+
+- name: Reload docker
+  ansible.builtin.systemd:
+    name: docker
+    state: reloaded
+  become: true

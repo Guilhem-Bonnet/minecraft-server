@@ -1,0 +1,12 @@
+# {{ ansible_managed }}
+# Prometheus scrape configuration for Minecraft
+
+- job_name: 'minecraft-{{ minecraft_server_name | lower | replace(" ", "-") }}'
+  static_configs:
+    - targets: ['{{ ansible_host }}:{{ minecraft_prometheus_port }}']
+      labels:
+        server: '{{ minecraft_server_name }}'
+        version: '{{ minecraft_version }}'
+        type: '{{ minecraft_type }}'
+  scrape_interval: 15s
+  scrape_timeout: 10s

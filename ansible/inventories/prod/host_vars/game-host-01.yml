@@ -1,0 +1,22 @@
+---
+# Host-specific variables for game-host-01
+
+minecraft_server_name: "Serveur Gaming"
+minecraft_infrared_domain: "mc.homelab.local"
+minecraft_infrared_extra_domains:
+  - "minecraft.homelab.local"
+  - "192.168.2.70"
+
+# RCON (generate a strong password)
+minecraft_rcon_password: "CHANGE_ME_STRONG_PASSWORD"
+
+# Whitelist (if enabled)
+minecraft_whitelist_enabled: false
+minecraft_whitelist: []
+
+# Operators
+minecraft_ops:
+  - "your_minecraft_username"
+
+# Resource allocation for this specific host
+minecraft_memory: "6G"

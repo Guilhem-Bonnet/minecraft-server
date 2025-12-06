@@ -1,0 +1,209 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Minecraft Intelligent Backup Script
+
+set -euo pipefail
+
+# Configuration
+INSTALL_DIR="{{ minecraft_install_dir }}"
+DATA_DIR="{{ minecraft_data_dir }}"
+RESTIC_REPO="s3:{{ minecraft_backup_s3_endpoint }}/{{ minecraft_backup_s3_bucket }}"
+RESTIC_PASSWORD_FILE="${INSTALL_DIR}/.restic-password"
+
+# Export S3 credentials
+export AWS_ACCESS_KEY_ID="{{ minecraft_backup_s3_access_key }}"
+export AWS_SECRET_ACCESS_KEY="{{ minecraft_backup_s3_secret_key }}"
+export RESTIC_PASSWORD_FILE
+
+# Retention policy
+KEEP_HOURLY={{ minecraft_backup_retention.hourly }}
+KEEP_DAILY={{ minecraft_backup_retention.daily }}
+KEEP_WEEKLY={{ minecraft_backup_retention.weekly }}
+KEEP_MONTHLY={{ minecraft_backup_retention.monthly }}
+
+# RCON configuration
+RCON_HOST="localhost"
+RCON_PORT="{{ minecraft_rcon_port }}"
+RCON_PASSWORD="{{ minecraft_rcon_password }}"
+
+# Logging
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+error() {
+    log "ERROR: $*" >&2
+}
+
+# Send RCON command
+rcon_command() {
+    local cmd="$1"
+    docker exec minecraft rcon-cli --password "${RCON_PASSWORD}" --port "${RCON_PORT}" "${cmd}" 2>/dev/null || true
+}
+
+# Check if server is running
+is_server_running() {
+    docker ps --filter "name=minecraft" --filter "status=running" -q | grep -q .
+}
+
+# Backup function
+do_backup() {
+    local tag="${1:-}"
+    
+    log "Starting backup..."
+    
+    # Prepare server for backup if running
+    if is_server_running; then
+        log "Server is running, preparing for backup..."
+        rcon_command "say §6[Backup] Sauvegarde en cours..."
+        rcon_command "save-off"
+        rcon_command "save-all"
+        sleep 5
+    fi
+    
+    # Build restic command
+    local restic_args="-r ${RESTIC_REPO} backup ${DATA_DIR}"
+    
+    if [ -n "${tag}" ]; then
+        restic_args="${restic_args} --tag ${tag}"
+    fi
+    
+    restic_args="${restic_args} --tag minecraft --tag {{ minecraft_server_name | lower | replace(' ', '-') }}"
+    
+    # Execute backup
+    if restic ${restic_args}; then
+        log "Backup completed successfully"
+        
+        if is_server_running; then
+            rcon_command "save-on"
+            rcon_command "say §a[Backup] Sauvegarde terminée!"
+        fi
+    else
+        error "Backup failed"
+        
+        if is_server_running; then
+            rcon_command "save-on"
+            rcon_command "say §c[Backup] Erreur lors de la sauvegarde!"
+        fi
+        return 1
+    fi
+}
+
+# List backups
+list_backups() {
+    log "Listing backups..."
+    restic -r "${RESTIC_REPO}" snapshots --tag minecraft
+}
+
+# Restore function
+do_restore() {
+    local snapshot="${1:-latest}"
+    
+    log "Restoring from snapshot: ${snapshot}"
+    
+    if is_server_running; then
+        log "Stopping server for restore..."
+        docker compose -f "${INSTALL_DIR}/docker-compose.yml" stop minecraft
+    fi
+    
+    # Create restore directory
+    local restore_dir="${DATA_DIR}.restore"
+    mkdir -p "${restore_dir}"
+    
+    # Restore
+    restic -r "${RESTIC_REPO}" restore "${snapshot}" --target "${restore_dir}"
+    
+    # Backup current data
+    if [ -d "${DATA_DIR}" ]; then
+        local backup_name="${DATA_DIR}.pre-restore.$(date +%Y%m%d_%H%M%S)"
+        log "Backing up current data to ${backup_name}"
+        mv "${DATA_DIR}" "${backup_name}"
+    fi
+    
+    # Move restored data
+    mv "${restore_dir}${DATA_DIR}" "${DATA_DIR}"
+    rm -rf "${restore_dir}"
+    
+    log "Restore completed"
+    log "You can restart the server with: docker compose up -d minecraft"
+}
+
+# Cleanup old backups
+do_cleanup() {
+    log "Running backup retention cleanup..."
+    restic -r "${RESTIC_REPO}" forget \
+        --keep-hourly ${KEEP_HOURLY} \
+        --keep-daily ${KEEP_DAILY} \
+        --keep-weekly ${KEEP_WEEKLY} \
+        --keep-monthly ${KEEP_MONTHLY} \
+        --prune \
+        --tag minecraft
+    
+    log "Cleanup completed"
+}
+
+# Pre-event backup (for updates, etc.)
+pre_event_backup() {
+    local event_name="${1:-manual}"
+    log "Creating pre-event backup: ${event_name}"
+    do_backup "pre-${event_name}"
+}
+
+# Health check
+check_health() {
+    log "Checking backup repository health..."
+    restic -r "${RESTIC_REPO}" check
+    log "Repository health check passed"
+}
+
+# Usage
+usage() {
+    cat <<EOF
+Minecraft Backup Management Script
+
+Usage: $0 <command> [options]
+
+Commands:
+    backup [tag]     - Create a new backup (optional tag)
+    restore [id]     - Restore from snapshot (default: latest)
+    list             - List all backups
+    cleanup          - Apply retention policy
+    pre-event <name> - Create pre-event backup
+    check            - Check repository health
+
+Examples:
+    $0 backup                    # Regular backup
+    $0 backup pre-update         # Tagged backup
+    $0 restore latest            # Restore latest
+    $0 restore abc123            # Restore specific snapshot
+    $0 list                      # Show all snapshots
+    $0 cleanup                   # Prune old backups
+    $0 pre-event server-update   # Pre-update backup
+EOF
+}
+
+# Main
+case "${1:-}" in
+    backup)
+        do_backup "${2:-}"
+        ;;
+    restore)
+        do_restore "${2:-latest}"
+        ;;
+    list)
+        list_backups
+        ;;
+    cleanup)
+        do_cleanup
+        ;;
+    pre-event)
+        pre_event_backup "${2:-manual}"
+        ;;
+    check)
+        check_health
+        ;;
+    *)
+        usage
+        exit 1
+        ;;
+esac

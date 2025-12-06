@@ -1,0 +1,33 @@
+# Exemple de configuration pour le serveur gaming
+# Copier vers terraform.tfvars et adapter
+
+proxmox_node    = "developadream"
+hostname        = "gaming-server"
+vmid            = 120
+
+# Ressources - Ajuster selon besoins
+cores           = 4
+memory          = 8192  # 8GB - Minecraft recommande 6GB JVM + overhead
+swap            = 2048
+
+# Stockage
+storage         = "local-lvm"
+disk_size       = "30G"
+# data_storage  = "local-lvm"  # Décommenter pour disque données séparé
+# data_disk_size = "50G"
+
+# Réseau
+network_bridge  = "vmbr0"
+ip_address      = "192.168.2.70/24"
+gateway         = "192.168.2.1"
+
+# Comportement
+start_on_boot   = false  # Infrared gère le wake-on-demand
+protection      = true
+
+# Sécurité - À définir
+# root_password = "changeme"  # Ou via variable d'environnement TF_VAR_root_password
+# ssh_public_keys = "ssh-rsa AAAA..."
+
+# Tags
+tags = ["gaming", "minecraft", "docker", "terraform"]

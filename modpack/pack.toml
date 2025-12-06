@@ -1,0 +1,19 @@
+name = "Mon Serveur Minecraft"
+author = "Admin"
+version = "1.0.0"
+pack-format = "packwiz:1.1.0"
+
+[index]
+file = "index.toml"
+hash-format = "sha256"
+
+[versions]
+minecraft = "1.21.1"
+fabric = "0.16.0"
+# OU pour Forge:
+# forge = "47.2.0"
+
+[options]
+# URL de base pour les téléchargements
+# Sera remplacé par ton domaine
+acceptable-game-versions = ["1.21.1", "1.21"]

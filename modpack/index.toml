@@ -1,0 +1,9 @@
+hash-format = "sha256"
+
+# Les fichiers sont ajoutés automatiquement par packwiz
+# Exécuter: packwiz refresh
+
+[[files]]
+# Exemple de structure - les mods seront ajoutés ici
+# file = "mods/fabric-api.pw.toml"
+# hash = "sha256:..."

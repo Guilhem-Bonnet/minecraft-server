@@ -1,0 +1,94 @@
+# Minecraft Server - Ansible Role Defaults
+#
+# Ces valeurs peuvent être surchargées dans:
+# - group_vars/
+# - host_vars/
+# - Playbook directement
+
+# === Général ===
+minecraft_user: minecraft
+minecraft_group: minecraft
+minecraft_base_dir: /opt/minecraft
+minecraft_data_dir: "{{ minecraft_base_dir }}/data"
+minecraft_config_dir: "{{ minecraft_base_dir }}/config"
+minecraft_scripts_dir: "{{ minecraft_base_dir }}/scripts"
+
+# === Version et Type ===
+minecraft_version: "1.21.1"
+minecraft_type: "PAPER"  # PAPER, FABRIC, FORGE, VANILLA
+minecraft_memory: "6G"
+
+# === Serveur ===
+minecraft_server_name: "Mon Serveur"
+minecraft_motd: "§6Bienvenue! §7Serveur Minecraft"
+minecraft_difficulty: "normal"
+minecraft_gamemode: "survival"
+minecraft_max_players: 20
+minecraft_view_distance: 10
+minecraft_simulation_distance: 8
+
+# === Réseau ===
+minecraft_port: 25565
+minecraft_rcon_port: 25575
+minecraft_rcon_password: "{{ vault_minecraft_rcon_password | default('changeme') }}"
+
+# === Sécurité ===
+minecraft_online_mode: true
+minecraft_enable_whitelist: true
+minecraft_ops: []  # Liste des OPs
+minecraft_whitelist: []  # Liste des joueurs whitelist
+
+# === Docker ===
+minecraft_docker_network: "minecraft-network"
+minecraft_docker_compose_version: "3.8"
+
+# === Infrared (Scale-to-Zero) ===
+infrared_enabled: true
+infrared_domains:
+  - "mc.example.com"
+  - "minecraft.example.com"
+infrared_timeout_message: |
+  §6Le serveur démarre!
+  §7Reconnectez-vous dans quelques secondes...
+infrared_autostop_timeout: 3600  # 1h sans joueur
+
+# === Backup S3 ===
+backup_enabled: true
+backup_s3_endpoint: "s3.fr-par.scw.cloud"
+backup_s3_bucket: "minecraft-backups"
+backup_s3_access_key: "{{ vault_s3_access_key | default('') }}"
+backup_s3_secret_key: "{{ vault_s3_secret_key | default('') }}"
+backup_restic_password: "{{ vault_restic_password | default('changeme') }}"
+backup_schedule: "0 */4 * * *"  # Toutes les 4h
+backup_retention:
+  hourly: 6
+  daily: 7
+  weekly: 4
+  monthly: 6
+
+# === Monitoring ===
+prometheus_enabled: true
+prometheus_port: 9150
+
+# === Mods/Plugins ===
+minecraft_mods_enabled: false
+minecraft_plugins: []
+# Plugins auto-téléchargés via Spiget (IDs)
+# Spark: 57242, CoreProtect: 8631
+minecraft_spiget_resources: []
+
+# === Packwiz (pour distribution mods) ===
+packwiz_enabled: false
+packwiz_domain: "mods.example.com"
+packwiz_port: 8081
+
+# === Traefik Labels ===
+traefik_enabled: true
+traefik_domain: "example.com"
+
+# === Notifications ===
+notifications_enabled: false
+discord_webhook_url: ""
+
+# === Dépendances ===
+docker_install: true  # Installer Docker si absent

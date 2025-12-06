@@ -1,0 +1,91 @@
+---
+# Backup configuration tasks
+
+- name: Create backup scripts directory
+  ansible.builtin.file:
+    path: "{{ minecraft_install_dir }}/scripts"
+    state: directory
+    owner: "{{ minecraft_user }}"
+    group: "{{ minecraft_group }}"
+    mode: "0755"
+  become: true
+
+- name: Template backup script
+  ansible.builtin.template:
+    src: backup.sh.j2
+    dest: "{{ minecraft_install_dir }}/scripts/backup.sh"
+    owner: "{{ minecraft_user }}"
+    group: "{{ minecraft_group }}"
+    mode: "0755"
+  become: true
+
+- name: Create restic password file
+  ansible.builtin.copy:
+    content: "{{ minecraft_backup_restic_password }}"
+    dest: "{{ minecraft_install_dir }}/.restic-password"
+    owner: "{{ minecraft_user }}"
+    group: "{{ minecraft_group }}"
+    mode: "0600"
+  become: true
+  when: minecraft_backup_restic_password is defined
+
+- name: Create S3 credentials file
+  ansible.builtin.template:
+    src: s3-credentials.j2
+    dest: "{{ minecraft_install_dir }}/.s3-credentials"
+    owner: "{{ minecraft_user }}"
+    group: "{{ minecraft_group }}"
+    mode: "0600"
+  become: true
+  when: minecraft_backup_s3_access_key is defined
+
+- name: Initialize restic repository
+  ansible.builtin.shell: |
+    source {{ minecraft_install_dir }}/.s3-credentials
+    export RESTIC_PASSWORD_FILE="{{ minecraft_install_dir }}/.restic-password"
+    restic -r s3:{{ minecraft_backup_s3_endpoint }}/{{ minecraft_backup_s3_bucket }} init || true
+  args:
+    executable: /bin/bash
+  become: true
+  become_user: "{{ minecraft_user }}"
+  register: restic_init
+  changed_when: "'created restic repository' in restic_init.stdout"
+  failed_when: false
+  when:
+    - minecraft_backup_enabled | bool
+    - minecraft_backup_s3_endpoint is defined
+
+- name: Setup backup cron job
+  ansible.builtin.cron:
+    name: "Minecraft backup"
+    minute: "{{ minecraft_backup_schedule.split()[0] }}"
+    hour: "{{ minecraft_backup_schedule.split()[1] }}"
+    day: "{{ minecraft_backup_schedule.split()[2] }}"
+    month: "{{ minecraft_backup_schedule.split()[3] }}"
+    weekday: "{{ minecraft_backup_schedule.split()[4] }}"
+    job: "{{ minecraft_install_dir }}/scripts/backup.sh backup >> {{ minecraft_install_dir }}/logs/backup.log 2>&1"
+    user: "{{ minecraft_user }}"
+    state: "{{ 'present' if minecraft_backup_enabled else 'absent' }}"
+  become: true
+
+- name: Setup backup retention cleanup cron job
+  ansible.builtin.cron:
+    name: "Minecraft backup cleanup"
+    minute: "0"
+    hour: "4"
+    day: "*"
+    month: "*"
+    weekday: "0"
+    job: "{{ minecraft_install_dir }}/scripts/backup.sh cleanup >> {{ minecraft_install_dir }}/logs/backup.log 2>&1"
+    user: "{{ minecraft_user }}"
+    state: "{{ 'present' if minecraft_backup_enabled else 'absent' }}"
+  become: true
+
+- name: Create logs directory
+  ansible.builtin.file:
+    path: "{{ minecraft_install_dir }}/logs"
+    state: directory
+    owner: "{{ minecraft_user }}"
+    group: "{{ minecraft_group }}"
+    mode: "0755"
+  become: true

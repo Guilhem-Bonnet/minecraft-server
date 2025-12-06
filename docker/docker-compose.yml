@@ -1,0 +1,222 @@
+# Minecraft Gaming Stack
+# 
+# Architecture:
+# - Infrared: Proxy avec scale-to-zero (wake on demand)
+# - Minecraft: Paper server avec optimisations
+# - Exporter: Metrics Prometheus via RCON
+# - Backup: Service de backup vers S3
+#
+# Le serveur MC s'arrête après X minutes sans joueur
+# Infrared intercepte les connexions et démarre le serveur à la demande
+
+services:
+  # ============================================
+  # Infrared - Proxy Minecraft avec Wake-on-Demand
+  # ============================================
+  infrared:
+    image: ghcr.io/haveachin/infrared:latest
+    container_name: infrared
+    restart: unless-stopped
+    ports:
+      - "25565:25565"      # Port Minecraft public
+    volumes:
+      - ./infrared:/etc/infrared:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro  # Pour contrôler MC
+    environment:
+      INFRARED_CONFIG_PATH: /etc/infrared
+    networks:
+      - minecraft-network
+    depends_on:
+      - minecraft
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "25565"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    labels:
+      - "prometheus.scrape=true"
+      - "prometheus.port=9100"
+
+  # ============================================
+  # Minecraft Server - Paper (optimisé)
+  # ============================================
+  minecraft:
+    image: itzg/minecraft-server:java21
+    container_name: minecraft
+    restart: "no"  # Géré par Infrared
+    tty: true
+    stdin_open: true
+    
+    # Pas de port exposé - Infrared fait le proxy
+    expose:
+      - "25565"
+      - "25575"  # RCON
+    
+    environment:
+      # === Acceptation EULA ===
+      EULA: "TRUE"
+      
+      # === Type de serveur ===
+      TYPE: "PAPER"
+      VERSION: "${MC_VERSION:-LATEST}"
+      
+      # === Performance - Aikar's Flags ===
+      MEMORY: "${MC_MEMORY:-6G}"
+      USE_AIKAR_FLAGS: "true"
+      
+      # === Configuration serveur ===
+      SERVER_NAME: "${SERVER_NAME:-Mon Serveur}"
+      MOTD: "${MOTD:-Bienvenue sur le serveur!}"
+      DIFFICULTY: "${DIFFICULTY:-normal}"
+      MODE: "${GAMEMODE:-survival}"
+      MAX_PLAYERS: "${MAX_PLAYERS:-20}"
+      VIEW_DISTANCE: "${VIEW_DISTANCE:-10}"
+      SIMULATION_DISTANCE: "${SIMULATION_DISTANCE:-8}"
+      SPAWN_PROTECTION: "16"
+      ALLOW_NETHER: "true"
+      ENABLE_COMMAND_BLOCK: "false"
+      
+      # === Sécurité ===
+      ONLINE_MODE: "${ONLINE_MODE:-true}"
+      ENABLE_WHITELIST: "${ENABLE_WHITELIST:-true}"
+      ENFORCE_WHITELIST: "true"
+      OPS: "${OPS:-}"
+      WHITELIST: "${WHITELIST:-}"
+      
+      # === RCON (pour monitoring et backup) ===
+      ENABLE_RCON: "true"
+      RCON_PASSWORD: "${RCON_PASSWORD}"
+      RCON_PORT: "25575"
+      
+      # === Auto-stop (complémentaire à Infrared) ===
+      ENABLE_AUTOSTOP: "true"
+      AUTOSTOP_TIMEOUT_EST: "${AUTOSTOP_TIMEOUT:-3600}"  # 1h sans joueur
+      AUTOSTOP_TIMEOUT_INIT: "300"  # 5min au démarrage si personne
+      
+      # === Plugins auto-download ===
+      SPIGET_RESOURCES: "${SPIGET_RESOURCES:-}"  # IDs séparés par virgule
+      
+      # === Timezone ===
+      TZ: "Europe/Paris"
+      
+    volumes:
+      # Données persistantes
+      - minecraft-data:/data
+      
+      # Mods/Plugins custom (si besoin)
+      - ./mods:/mods:ro
+      - ./plugins:/plugins:ro
+      
+      # Configuration custom
+      - ./config/server.properties.override:/data/server.properties.override:ro
+      
+    networks:
+      - minecraft-network
+      
+    healthcheck:
+      test: mc-health
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 180s  # MC prend du temps à démarrer
+      
+    labels:
+      - "infrared.enable=true"
+      - "backup.enable=true"
+      
+    # Limites ressources (sécurité)
+    deploy:
+      resources:
+        limits:
+          memory: 8G
+        reservations:
+          memory: 4G
+
+  # ============================================
+  # Prometheus Exporter - Metrics Minecraft
+  # ============================================
+  minecraft-exporter:
+    image: ghcr.io/dirien/minecraft-exporter:latest
+    container_name: minecraft-exporter
+    restart: unless-stopped
+    expose:
+      - "9150"
+    environment:
+      MC_RCON_ADDRESS: "minecraft:25575"
+      MC_RCON_PASSWORD: "${RCON_PASSWORD}"
+      MC_NAME_SOURCE: "bukkit"
+      WEB_DISABLED_EXPORTER_METRICS: "false"
+    volumes:
+      - minecraft-data:/minecraft/world:ro
+    networks:
+      - minecraft-network
+    depends_on:
+      - minecraft
+    labels:
+      - "prometheus.scrape=true"
+      - "prometheus.port=9150"
+      - "prometheus.path=/metrics"
+
+  # ============================================
+  # Backup Service - Vers S3
+  # ============================================
+  backup:
+    image: restic/restic:latest
+    container_name: minecraft-backup
+    restart: "no"  # Lancé par cron ou manuellement
+    environment:
+      RESTIC_REPOSITORY: "s3:${S3_ENDPOINT}/${S3_BUCKET}"
+      RESTIC_PASSWORD: "${RESTIC_PASSWORD}"
+      AWS_ACCESS_KEY_ID: "${AWS_ACCESS_KEY_ID}"
+      AWS_SECRET_ACCESS_KEY: "${AWS_SECRET_ACCESS_KEY}"
+    volumes:
+      - minecraft-data:/data:ro
+      - ./scripts/backup.sh:/backup.sh:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["echo 'Backup container ready. Run: docker exec minecraft-backup /backup.sh'"]
+    networks:
+      - minecraft-network
+    profiles:
+      - backup  # N'est pas lancé par défaut
+
+  # ============================================
+  # Packwiz Server - Distribution des mods
+  # ============================================
+  packwiz:
+    image: nginx:alpine
+    container_name: minecraft-packwiz
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    volumes:
+      - ./modpack:/usr/share/nginx/html:ro
+    networks:
+      - minecraft-network
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.packwiz.rule=Host(`mods.${DOMAIN}`)"
+      - "traefik.http.routers.packwiz.entrypoints=websecure"
+      - "traefik.http.routers.packwiz.tls.certresolver=letsencrypt"
+    profiles:
+      - modded  # Seulement si serveur moddé
+
+# ============================================
+# Networks
+# ============================================
+networks:
+  minecraft-network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/24
+
+# ============================================
+# Volumes
+# ============================================
+volumes:
+  minecraft-data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: ${DATA_PATH:-/opt/minecraft/data}

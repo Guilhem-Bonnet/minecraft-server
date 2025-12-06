@@ -1,0 +1,56 @@
+# Dependencies
+.terraform/
+*.tfstate
+*.tfstate.backup
+.terraform.lock.hcl
+
+# Environment files with secrets
+.env
+*.tfvars
+!*.tfvars.example
+
+# Ansible secrets
+**/secrets.yml
+**/vault.yml
+**/*.vault.yml
+
+# SSH keys
+*.pem
+*.key
+id_*
+!id_*.pub
+
+# Restic/Backup credentials
+.restic-password
+.s3-credentials
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Cache
+__pycache__/
+*.pyc
+.cache/
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
+# Minecraft data (if running locally)
+minecraft-data/
+world/
+*/world*/
+*.jar

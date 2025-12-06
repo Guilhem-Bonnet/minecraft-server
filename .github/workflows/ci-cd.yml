@@ -1,0 +1,249 @@
+name: Minecraft Server CI/CD
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: 'Action to perform'
+        required: true
+        default: 'validate'
+        type: choice
+        options:
+          - validate
+          - plan
+          - apply
+          - deploy-ansible
+
+env:
+  TF_VERSION: "1.6.0"
+  ANSIBLE_VERSION: "2.15"
+
+jobs:
+  # Validate Terraform
+  terraform-validate:
+    name: Terraform Validate
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: terraform
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Format Check
+        run: terraform fmt -check -recursive
+        continue-on-error: true
+
+      - name: Terraform Init
+        run: |
+          terraform init -backend=false
+
+      - name: Terraform Validate
+        run: terraform validate
+
+  # Validate Ansible
+  ansible-lint:
+    name: Ansible Lint
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Ansible and ansible-lint
+        run: |
+          pip install ansible==${{ env.ANSIBLE_VERSION }}.* ansible-lint yamllint
+
+      - name: Run yamllint
+        run: |
+          yamllint -c .yamllint.yml ansible/
+        continue-on-error: true
+
+      - name: Run ansible-lint
+        run: |
+          cd ansible && ansible-lint playbooks/ roles/
+        continue-on-error: true
+
+      - name: Ansible Syntax Check
+        run: |
+          cd ansible && ansible-playbook playbooks/deploy-minecraft.yml --syntax-check -i inventories/prod/hosts.ini
+
+  # Docker Compose validation
+  docker-validate:
+    name: Docker Compose Validate
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Validate docker-compose.yml
+        run: |
+          docker compose -f docker/docker-compose.yml config
+
+  # Security scan
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          severity: 'CRITICAL,HIGH'
+          exit-code: '0'  # Don't fail on vulnerabilities for now
+
+      - name: Run tfsec
+        uses: aquasecurity/tfsec-action@v1.0.0
+        with:
+          working_directory: terraform
+          soft_fail: true
+
+  # Terraform Plan (on PR or manual trigger)
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: self-hosted
+    needs: [terraform-validate]
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'plan')
+    defaults:
+      run:
+        working-directory: terraform
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Terraform Init
+        run: |
+          terraform init
+        env:
+          TF_VAR_pm_api_token_id: ${{ secrets.PM_API_TOKEN_ID }}
+          TF_VAR_pm_api_token_secret: ${{ secrets.PM_API_TOKEN_SECRET }}
+
+      - name: Terraform Plan
+        run: |
+          terraform plan -var-file=prod.tfvars -out=tfplan
+        env:
+          TF_VAR_pm_api_token_id: ${{ secrets.PM_API_TOKEN_ID }}
+          TF_VAR_pm_api_token_secret: ${{ secrets.PM_API_TOKEN_SECRET }}
+
+      - name: Upload Plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: terraform/tfplan
+          retention-days: 7
+
+  # Terraform Apply (manual trigger only)
+  terraform-apply:
+    name: Terraform Apply
+    runs-on: self-hosted
+    needs: [terraform-plan]
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'apply'
+    environment: production
+    defaults:
+      run:
+        working-directory: terraform
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: Download Plan
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+          path: terraform
+
+      - name: Terraform Init
+        run: terraform init
+        env:
+          TF_VAR_pm_api_token_id: ${{ secrets.PM_API_TOKEN_ID }}
+          TF_VAR_pm_api_token_secret: ${{ secrets.PM_API_TOKEN_SECRET }}
+
+      - name: Terraform Apply
+        run: terraform apply -auto-approve tfplan
+        env:
+          TF_VAR_pm_api_token_id: ${{ secrets.PM_API_TOKEN_ID }}
+          TF_VAR_pm_api_token_secret: ${{ secrets.PM_API_TOKEN_SECRET }}
+
+  # Ansible Deploy (manual trigger only)
+  ansible-deploy:
+    name: Ansible Deploy
+    runs-on: self-hosted
+    needs: [ansible-lint]
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy-ansible'
+    environment: production
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Ansible
+        run: |
+          pip install ansible==${{ env.ANSIBLE_VERSION }}.* docker
+
+      - name: Setup SSH Key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+
+      - name: Run Ansible Playbook
+        run: |
+          cd ansible && ansible-playbook playbooks/deploy-minecraft.yml \
+            -i inventories/prod/hosts.ini \
+            --extra-vars "minecraft_rcon_password=${{ secrets.MC_RCON_PASSWORD }}" \
+            --extra-vars "minecraft_backup_s3_access_key=${{ secrets.S3_ACCESS_KEY }}" \
+            --extra-vars "minecraft_backup_s3_secret_key=${{ secrets.S3_SECRET_KEY }}" \
+            --extra-vars "minecraft_backup_restic_password=${{ secrets.RESTIC_PASSWORD }}"
+        env:
+          ANSIBLE_HOST_KEY_CHECKING: "False"
+
+  # Backup check (scheduled)
+  backup-check:
+    name: Backup Health Check
+    runs-on: self-hosted
+    if: github.event.schedule == '0 6 * * *'  # Daily at 6 AM
+    
+    steps:
+      - name: Check last backup
+        run: |
+          # This would check the last backup status
+          echo "Checking backup health..."
+          # Add restic check command here
