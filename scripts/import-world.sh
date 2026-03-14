@@ -72,12 +72,15 @@ spec:
   automountServiceAccountToken: false
   securityContext:
     fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
   containers:
     - name: importer
       image: alpine:3.21
       command: ["sh", "-c", "sleep 3600"]
       securityContext:
         runAsUser: 0  # root pour unzip + chown
+        privileged: false
         allowPrivilegeEscalation: false
         capabilities:
           drop: ["ALL"]
