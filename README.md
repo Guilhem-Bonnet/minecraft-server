@@ -1,155 +1,123 @@
-# 🎮 Minecraft Server Infrastructure
+# Minecraft Server — Canada's World
 
-Infrastructure as Code complète pour déployer et gérer un serveur Minecraft optimisé avec :
+Serveur Minecraft Java Edition déployé sur K3s via FluxCD GitOps.
 
-- 🚀 **Scale-to-Zero** : Démarrage automatique à la connexion des joueurs
-- 💾 **Backups S3 intelligents** : Sauvegarde dédupliquée avec restic
-- 📦 **Distribution de mods** : Packwiz pour mise à jour automatique des mods
-- �� **Monitoring Prometheus** : Métriques TPS, joueurs, mémoire
-- 🐳 **Docker** : Déploiement conteneurisé avec Paper MC
-- 🔧 **IaC** : Terraform + Ansible pour provisionnement et configuration
+## Infos
 
-## 📋 Prérequis
+| Propriété | Valeur |
+|---|---|
+| Adresse joueurs | `192.168.2.83:25565` |
+| Version MC | 1.21.11 (Java Edition) |
+| Type | Paper (performance optimale) |
+| World | Canada's World |
+| Node K3s | predator-k3s |
+| PVC Longhorn | 30Gi (`minecraft-data`) |
 
-- **Proxmox VE** >= 7.0
-- **Terraform** >= 1.6
-- **Ansible** >= 2.15
-- **Docker** & Docker Compose
-- Stockage **S3** compatible (MinIO, AWS S3, etc.)
+## Structure
 
-## 🏗️ Architecture
+```
+minecraft-server/
+├── scripts/
+│   └── import-world.sh   # Import initial de la world depuis un zip local
+└── README.md
+```
 
-\`\`\`
-┌─────────────────────────────────────────────────────────────────┐
-│                        Joueurs                                   │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                     Infrared Proxy                               │
-│              (Scale-to-zero, Wake-on-connect)                   │
-│                      Port 25565                                  │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                   Minecraft Server (Paper)                       │
-│               itzg/minecraft-server:java21                       │
-│                 ENABLE_AUTOSTOP=true                            │
-│                    Aikars Flags                                  │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-          ┌───────────────────┼───────────────────┐
-          ▼                   ▼                   ▼
-┌──────────────────┐ ┌──────────────────┐ ┌──────────────────┐
-│   Prometheus     │ │   Restic Backup  │ │    Packwiz       │
-│    Exporter      │ │      → S3        │ │   Mod Server     │
-│   Port 9225      │ │   Deduplicated   │ │   Port 8080      │
-└──────────────────┘ └──────────────────┘ └──────────────────┘
-\`\`\`
+Les manifests K8s sont dans `infra-prod-home-/k8s/apps/minecraft/`.
 
-## 🚀 Démarrage rapide
+## Déploiement initial
 
-### 1. Cloner le dépôt
+### 1. Pousser les manifests
 
-\`\`\`bash
-git clone https://github.com/Guilhem-Bonnet/minecraft-server.git
+```bash
+cd infra-prod-home-
+git add k8s/apps/minecraft/
+git commit -m "feat(minecraft): déploiement Canada's World 1.21.11"
+git push
+# FluxCD reconcile en ~2min
+flux reconcile kustomization apps --with-source
+```
+
+### 2. Attendre la création du PVC et du namespace
+
+```bash
+kubectl get all -n minecraft
+kubectl get pvc -n minecraft
+# Attendre que PVC minecraft-data soit Bound
+```
+
+### 3. Importer la world
+
+```bash
 cd minecraft-server
-\`\`\`
+bash scripts/import-world.sh ~/Téléchargements/wetransfer_canada-s-world_2026-03-13_1751.zip
+```
 
-### 2. Provisionnement de linfrastructure (Terraform)
+Le script :
+- Arrête proprement le serveur (replicas=0)
+- Déploie un pod Alpine temporaire sur le même PVC
+- Copie + extrait le zip (~2.6GB)
+- Renomme "Canada's World" → "world"
+- Redémarre le serveur (replicas=1)
 
-\`\`\`bash
-cd terraform
+### 4. Vérifier le démarrage
 
-# Copier et configurer les variables
-cp prod.tfvars.example prod.tfvars
-# Éditer prod.tfvars avec vos valeurs
+```bash
+# Logs en direct
+kubectl logs -n minecraft deploy/minecraft -f
 
-# Initialiser et appliquer
-terraform init
-terraform plan -var-file=prod.tfvars
-terraform apply -var-file=prod.tfvars
-\`\`\`
+# Statut
+kubectl get pods -n minecraft -w
 
-### 3. Déploiement du serveur (Ansible)
+# Console interactive (une fois le serveur prêt)
+kubectl exec -n minecraft deploy/minecraft -- mc-monitor tee --fifo
+```
 
-\`\`\`bash
-cd ansible
+## Opérations courantes
 
-# Configurer linventaire
-# Éditer inventories/prod/hosts.ini et host_vars/
+### Envoyer une commande serveur
 
-# Déployer
-ansible-playbook playbooks/deploy-minecraft.yml -i inventories/prod/hosts.ini
-\`\`\`
+```bash
+kubectl exec -n minecraft deploy/minecraft -- mc-monitor tee --fifo
+# puis taper : /op <username>
+```
 
-### 4. Déploiement Docker uniquement
+### Redémarrer le serveur
 
-Si vous avez déjà un serveur, vous pouvez utiliser Docker Compose directement :
+```bash
+kubectl rollout restart deployment/minecraft -n minecraft
+```
 
-\`\`\`bash
-cd docker
+### Mise à jour de la version Minecraft
 
-# Copier et configurer lenvironnement
-cp .env.example .env
-# Éditer .env
+1. Modifier `VERSION` dans `k8s/apps/minecraft/deployment.yaml`
+2. Commiter + pousser → FluxCD reconstruit avec la nouvelle version
 
-# Démarrer les services
-docker compose up -d
-\`\`\`
+### Sauvegarde manuelle immédiate
 
-## 🔧 Configuration
+```bash
+velero backup create minecraft-manual \
+  --include-namespaces=minecraft \
+  --default-volumes-to-fs-backup \
+  -n velero
+```
 
-### Variables principales
+### Accès RCON (commandes admin)
 
-| Variable | Description | Défaut |
-|----------|-------------|--------|
-| \`minecraft_version\` | Version Minecraft | \`1.21.4\` |
-| \`minecraft_type\` | Type de serveur | \`PAPER\` |
-| \`minecraft_memory\` | Mémoire allouée | \`6G\` |
-| \`minecraft_autostop_timeout\` | Timeout avant arrêt (sec) | \`300\` |
-| \`minecraft_backup_enabled\` | Activer les backups | \`true\` |
-| \`minecraft_prometheus_enabled\` | Activer les métriques | \`true\` |
-| \`minecraft_packwiz_enabled\` | Activer la distribution de mods | \`true\` |
+```bash
+# Récupérer le mot de passe RCON
+RCON_PASS=$(kubectl get secret minecraft-secret -n minecraft \
+  -o jsonpath='{.data.RCON_PASSWORD}' | base64 -d)
 
-## 📦 Gestion des Mods
+# Via rcon-cli depuis un pod debug
+kubectl run rcon-cli -n minecraft --rm -it --image=itzg/rcon-cli --restart=Never \
+  -- --host minecraft-rcon --port 25575 --password "$RCON_PASS"
+```
 
-### Ajouter un mod
+## Backups automatiques
 
-\`\`\`bash
-./scripts/manage-mods.sh add-modrinth sodium
-./scripts/manage-mods.sh add-modrinth lithium
-\`\`\`
+- **Daily** (02:00 UTC) : Velero backup du namespace `minecraft` + PVC (kopia/fs-backup), rétention 30j
+- **Weekly** (dimanche 03:00 UTC) : Backup complet cluster, rétention 90j
 
-### Pour les joueurs
+## Monitoring
 
-1. Télécharger [Prism Launcher](https://prismlauncher.org/)
-2. **Ajouter une instance** → **Importer depuis Modrinth**
-3. Entrer lURL : \`http://votre-serveur:8080/pack.toml\`
-4. Les mods seront automatiquement mis à jour !
-
-## 💾 Backups
-
-\`\`\`bash
-# Créer un backup
-./scripts/backup.sh backup
-
-# Lister les backups
-./scripts/backup.sh list
-
-# Restaurer
-./scripts/backup.sh restore latest
-\`\`\`
-
-## 📊 Monitoring
-
-Endpoint Prometheus : \`http://serveur:9225/metrics\`
-
-## ⚡ Scale-to-Zero
-
-Le serveur sarrête après 5 minutes sans joueurs. À la connexion, Infrared démarre automatiquement le serveur.
-
-## 📝 License
-
-MIT License
+Les logs sont collectés par Grafana Alloy (DaemonSet). Visible dans Grafana → Explore → Logs → `namespace=minecraft`.
