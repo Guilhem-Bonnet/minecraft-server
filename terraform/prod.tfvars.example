@@ -22,7 +22,7 @@ ct_disk   = "32G"
 
 # Network
 ct_network_bridge = "vmbr0"
-ct_ip_address     = "192.168.2.70"
+ct_ip_address     = "192.168.2.79"
 ct_gateway        = "192.168.2.1"
 
 # Storage

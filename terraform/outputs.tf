@@ -1,13 +1,13 @@
-# Outputs du module Gaming Server
+# Outputs — Gaming Server (provider bpg/proxmox)
 
 output "container_id" {
   description = "ID du container LXC"
-  value       = proxmox_lxc.gaming_server.vmid
+  value       = proxmox_virtual_environment_container.gaming_server.vm_id
 }
 
 output "container_hostname" {
   description = "Hostname du container"
-  value       = proxmox_lxc.gaming_server.hostname
+  value       = var.hostname
 }
 
 output "container_ip" {
